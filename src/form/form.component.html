@@ -1,0 +1,33 @@
+<!-- <div class="container">
+    <h1>Real Estate Ad Uploader</h1>
+  
+    <form [formGroup]="adForm" (ngSubmit)="onSubmit()">
+      <div class="form-group">
+        <label for="website">Select Website</label>
+        <select formControlName="website" (change)="loadFormFields()" class="form-control">
+          <option *ngFor="let site of websites" [value]="site">{{ site }}</option>
+        </select>
+      </div>
+  
+      <div class="form-group">
+        <label for="adType">Ad Type</label>
+        <select formControlName="adType" (change)="loadFormFields()" class="form-control">
+          <option value="sale">For Sale</option>
+          <option value="rent">For Rent</option>
+        </select>
+      </div>
+  
+      <div formGroupName="dynamicFields">
+        <div *ngFor="let field of formFields" class="form-group">
+          <label>{{ field.name }}</label>
+          <input *ngIf="field.type === 'text'" type="text" class="form-control" [formControlName]="field.name">
+          <input *ngIf="field.type === 'number'" type="number" class="form-control" [formControlName]="field.name">
+          <textarea *ngIf="field.type === 'textarea'" class="form-control" [formControlName]="field.name"></textarea>
+        </div>
+      </div>
+  
+      <button type="submit" class="btn btn-primary">Submit Ad</button>
+    </form>
+  </div>
+   -->
+
