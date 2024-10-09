@@ -1,0 +1,58 @@
+fieldStore:[
+  domain,
+  domain...
+]
+
+"domain":{ 
+    "input-field-external-id": {// for example: select-rovatkod in the form: type-id or name
+      "id": string, //field id from html
+      "name": string, //field name from html
+      "labelText":string, //label text from the field.id || field.name in the label's for attribute
+      "type": ["select", "input", "radio", "checkbox", "textarea"], //field's type 
+      "required":boolean, //if required from input's required property or if leaving it empty creates a dynamic error message when clicking out of it or clicking next
+      "options": [ //if applicable (select, radio, checkbox) 
+        {
+          "value": string, //option's value attribute
+          "text": string //option's text
+        }
+      ]
+    }
+}
+//example:
+form:// file/url
+  [
+    {"field": "input-ara"},//from the fieldStore the external id domain.input-ara
+    {
+    "field": "select-rovatkod",
+    "forks":[
+      {
+        "option-values":["1","65"],
+        "fork":[//a version of the remaining parts of the form reached by the options in option-values
+          {
+            "field": "input-file"
+          },
+          {
+            "field": "input-email"
+          }
+        ]
+      },
+      {
+        "option-values":["62"],
+        "fork":[
+          {
+            "field": "input-file"
+          },
+          {
+            "field": "input-nev"
+          },
+          {
+            "field": "input-email"
+          },
+          {
+            "field": "input-tel"
+          }
+        ]
+      }
+    ]
+  }
+  ]

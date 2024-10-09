@@ -45,3 +45,8 @@ node_modules/
 /playwright-report/
 /blob-report/
 /playwright/.cache/
+
+
+scripts/credentials-reserved.json
+scripts/credentials.json
+results/
