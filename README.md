@@ -1,27 +1,2 @@
-# RealestateAdsUploader
+think with me! i have to map dynamic forms somewhat recursively, the form migh be a collection of forms on a webpage, can be composed of traditional tags or any custom tags, im looking for forms based on the inputs they contain, im looking for inputs based on these selectors 'input, select, textarea, label, button, .form-item, .select-button, .switch-select, .switch-select-item, .select-dropdown-selector, .select-dropdown, [role="form"], [aria-label*="form"], [role="listbox"], [role="combobox"], [role="option"], .select__dropdown-item, [type="submit"], [type="button"], [type="checkbox"], [type="radio"], [contenteditable="true"], [ng-form], [ng-model], [v-model], [data-reactid], .form-control, .input-group, .form-group:has(input), mat-chip-listbox, mat-chip-option' not in this order but will reorganize them later, im going to use the collectElementsBySelector to categorise the elements and help further processing. i would like to have an order (the original order on page for the elements, but might be able to do without) the forms can be dynamic in that they can be composed of smaller parts that need to be filled out and a button might have to be pressed when the fields are filled, to show the next part, and this is showing in the html (the html doesn't contain the whole form just the current parts) for this reason im thinking about making the form have the structure (for processing) of form[formPart[field[the parameters i need]]] the form can also change because of a selection being made on a select-option or checkbox or radio... any tag that might have predefined values. for this reason the form structure for storage and later filling would be form[formField[{id,fork[optionValues[],formField[]]}]] also the fields would be stored in the fieldStore and only their ids and for options their values would be in the structure i need to start mapping the page by finding the initial inputs, iterating over them, if they are unique then put them in the fieldStore, and process them based on their type. for example if its a text input that is not required then just put it in the stored form structure as a fieldRef, if it is a select, or other option-having input then for each option check the rest of the form, if the input is a button and has some text or value suggesting it will take us to the next part then put it in the stored form structure as a fieldRef and push it. after pushing it check if there are any errors or if the next part is visible and do the same for it. it would be great if option selection events and mutation records could be matched and the form could be mapped using a mutation observer, but because the form structure (processing) can have multiple collapseable parts that collapse by themselves and get removed when loosing focus this seems impractical if not impossible because the form still would have to be iterated over for each option to see if there are really any changes. i need to use playwright to set up the context and log in to the pages, but then i need to enter an evaluate function and do all the mapping in there. if there is a better way, for example creating a browser extension that can do this im very interested, because in the evaluate i can not define functions and passing them as parameters is not possible. the results of this script would be two files per formPage the fieldStorage containing each unique form field, and the formData containing the tree of the form. for the option having fields i need recursive calls for each option, or option combination for checkboxesmost of the script would be running in the browser context, the initial context creation and login with playwright and the file writing are the two things i need the node.js context. if these can be done in another way im listening. another important thing is limiting the function call frequency and memory consumption, because this is a heavily recursive script. is it possible to write two separate files, one that does the node.js part and another that does the browser part, with the only communication between them being the first evaluate call that passes the context and some initial data to the browser script, and at the end the browser script just gives back an object containing the fieldStore and formData objects that need to be written to a file? it would be good because maybe this way i could create/define functions in the browser script. 
 
-This project was generated with [Angular CLI](https://github.com/angular/angular-cli) version 18.2.6.
-
-## Development server
-
-Run `ng serve` for a dev server. Navigate to `http://localhost:4200/`. The application will automatically reload if you change any of the source files.
-
-## Code scaffolding
-
-Run `ng generate component component-name` to generate a new component. You can also use `ng generate directive|pipe|service|class|guard|interface|enum|module`.
-
-## Build
-
-Run `ng build` to build the project. The build artifacts will be stored in the `dist/` directory.
-
-## Running unit tests
-
-Run `ng test` to execute the unit tests via [Karma](https://karma-runner.github.io).
-
-## Running end-to-end tests
-
-Run `ng e2e` to execute the end-to-end tests via a platform of your choice. To use this command, you need to first add a package that implements end-to-end testing capabilities.
-
-## Further help
-
-To get more help on the Angular CLI use `ng help` or go check out the [Angular CLI Overview and Command Reference](https://angular.dev/tools/cli) page.

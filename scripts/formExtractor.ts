@@ -1,5 +1,5 @@
-import fs from 'fs';
-import path from 'path';
+import * as fs from 'fs';
+import * as path from 'path';
 import { chromium, Page, ElementHandle, Browser } from 'playwright';
 
 // Define the types for the domain credentials and form fields
@@ -29,6 +29,14 @@ interface Field {
     options?: Option[];
 }
 
+
+interface FieldStore {
+    [domain: string]: {
+        [fieldID: string]: Field;
+    };
+}
+
+
 interface CredentialsStore {
     [domain: string]: DomainCredentials;  // Key is a string (domain), value is DomainCredentials
 }
@@ -47,42 +55,110 @@ interface DomainCredentials {
     formUrls: string[];
 }
 
-interface FieldStore {
-    [domain: string]: {
-        [fieldID: string]: Field;
-    };
-}
 
-interface FormData {
-    form: FieldRef[]
-}
-
-let counters = {
-    cextractFormFields:0,
-    cfindAllForms:0,
-    ccreateFormSignature:0,
-    cexploreForks:0,
-    mapDynamicForm:0,
-    mapForm:0,
-    matchedInputs:0,
-    clabelContainsInput:0,
-    cisFormEqual:0,
-    cextractFormData:0,
-    cgenerateFieldID:0,
-    cstoreField:0,
-    cgenerateCombinations:0
-}
 
 // Utility function to extract form fields while preserving their order and maintaining element handles
-const extractFormFields = async (container: ElementHandle): Promise<ElementHandle[]> => {
+const extractFormFields = async (container: ElementHandle, counters: any): Promise<ElementHandle[]> => {
     counters.cextractFormFields++
     const formElements = await container.$$('input, textarea, select, button, label');
     return formElements;  // Keep the reference to each form element (ElementHandle)
 };
+const findAllFormsbad = async (page: Page, selector: string, counters: any) => {
+    // Declare the function outside of evaluate to prevent TypeScript mangling
+    console.log('before evaluate')
+    const result = await page.evaluate(collectElements, selector);
 
-const findAllForms = async (page: Page): Promise<{ container: ElementHandle, fields: ElementHandle[] }[]> => {
-    counters.cfindAllForms++
+    console.log("result: ", result);
+    return result;
+};
+
+// Function to recursively collect inputs, selects, textareas, and labels
+function collectElements(selector: string) {
+    console.log('in collectElements')
+    const elements: Array<{ type: string, tag: string, outerHTML: string } | Element> = [];
+    const shadow: Array<{ type: string, tag: string, outerHTML: string }> = [];
+
+    const root = document.querySelector(selector);
+    // const root = document.querySelector(selector);
     
+    if (!root) return elements;
+    const invalid = '.invalid, .ng-invalid'
+    // Select all relevant form elements: inputs, selects, textareas, and labels
+    const formElements = root.querySelectorAll('input, select, textarea, label, button, .form-item, .select-button, .switch-select, .switch-select-item, .select-dropdown-selector, .select-dropdown, [role="form"], [aria-label*="form"], [role="listbox"], [role="combobox"], [role="option"], .select__dropdown-item, [type="submit"], [type="button"], [type="checkbox"], [type="radio"], [contenteditable="true"], [ng-form], [ng-model], [v-model], [data-reactid], .form-control, .input-group, .form-group:has(input), mat-chip-listbox, mat-chip-option, ');
+    formElements.forEach((element) => {
+        elements.push(element);
+
+        // Collect options if it's a <select> element
+        if (element.tagName.toLowerCase() === 'select') {
+            const options = Array.from((element as HTMLSelectElement).options);
+            options.forEach((option) => {
+                elements.push(option);
+            });
+        }
+    });
+
+    // Recursively handle shadow DOMs
+    root.querySelectorAll("*").forEach((el: Element) => {
+        if (el.shadowRoot) {
+            const shadowSelector = el?.id || el?.nodeName
+            const shadowChildren = collectElements(shadowSelector);
+            shadow.push()
+            elements.push(...shadowChildren);
+        }
+    });
+    console.log('before filter')
+
+    const formInputs = Array.from(elements).filter((input)=>{
+        console.log('in isNavOrMenu')
+        const element = input as Element
+        const navSelectors = [
+            'nav', 'header', 'footer', '.sidebar', '.menu', '.navbar',
+            '.toolbar', '.pagination', '.breadcrumbs', '.search-bar',
+            '.dropdown-menu', '#ad', '.ad', '.advertisement', '.banner',
+            '.sponsored', '.promo', '.cta', '.widget', '.gadgets', '.card',
+            '#top-bar', '.top-bar', '#bottom-bar', '.bottom-bar', '.sticky-footer',
+            '.site-header', '.site-footer', '.overlay', '.toast', '.notification', '.alert',
+            '.social', '.social-share', '.social-media', '.carousel', '.slider',
+            '.nav-list', '.nav-item', '.header-menu-item', '.menu-container', 'oom-portal-header'
+        ];
+
+        let parent = element.parentElement;
+        while (parent) {
+            if (navSelectors.some(selector => parent!.matches(selector))) {
+                return false; 
+            }
+            parent = parent.parentElement;
+        }
+        return true;
+    });
+    formInputs.forEach((element) => {
+        element = element as Element
+            elements.push({
+                type: 'light-dom',
+                tag: element.tagName.toLowerCase(),
+                outerHTML: element.outerHTML,
+            });
+
+            // Collect options if it's a <select> element
+            if (element.tagName.toLowerCase() === 'select') {
+                const options = Array.from((element as HTMLSelectElement).options);
+                options.forEach((element) => {
+                    elements.push({
+                        type: 'shadow-dom',
+                        tag: element.tagName.toLowerCase(),
+                        outerHTML: element.outerHTML,
+                    });
+                });
+            }
+        });
+    
+    return elements;
+}
+
+//just use document.forms
+const findAllForms = async (page: Page, counters: any): Promise<{ container: ElementHandle, fields: ElementHandle[] }[]> => {
+    counters.cfindAllForms++
+
     // Traditional form elements, aria roles, etc.
     const formElements = await page.$$('form, input, textarea, select, button, ' +
         '[role="form"], [aria-label*="form"], ' +
@@ -99,37 +175,37 @@ const findAllForms = async (page: Page): Promise<{ container: ElementHandle, fie
         'nav:has(input), article:has(input), aside:has(input), ' +
         'table:has(input), ul:has(input), li:has(input)'
     );
-// // Handle shadow DOM forms using `evaluate`
-// const shadowFormsHandle = await page.evaluateHandle(() => {
-//     const forms: Element[] = [];
-//     document.querySelectorAll('*').forEach((el) => {
-//         if (el.shadowRoot) {
-//             forms.push(...Array.from(el.shadowRoot.querySelectorAll('form, input, textarea, select, button, label')));
-//         }
-//     });
-//     return forms;
-// }) as any;
+    // // Handle shadow DOM forms using `evaluate`
+    // const shadowFormsHandle = await page.evaluateHandle(() => {
+    //     const forms: Element[] = [];
+    //     document.querySelectorAll('*').forEach((el) => {
+    //         if (el.shadowRoot) {
+    //             forms.push(...Array.from(el.shadowRoot.querySelectorAll('form, input, textarea, select, button, label')));
+    //         }
+    //     });
+    //     return forms;
+    // }) as any;
 
-// // Convert `JSHandle<Element[]>` to `ElementHandle<Node>[]`
-// const shadowFormElements = await shadowFormsHandle.evaluate((forms: Element[]) => {
-//     return forms.map(el => el as unknown as HTMLElement); // Convert to HTMLElement if needed
-// });
+    // // Convert `JSHandle<Element[]>` to `ElementHandle<Node>[]`
+    // const shadowFormElements = await shadowFormsHandle.evaluate((forms: Element[]) => {
+    //     return forms.map(el => el as unknown as HTMLElement); // Convert to HTMLElement if needed
+    // });
 
-// Get ElementHandle<Node>[] using valid selectors
-// const elementHandles: ElementHandle<Node>[] = [];
-// for (const el of shadowFormElements) {
-//     const id = el.id; // or use a different selector
-//     if (id) {
-//         const handle = await page.$(`#${id}`); // Use a valid CSS selector
-//         if (handle) {
-//             elementHandles.push(handle);
-//         } else {
-//             console.warn(`Element with ID "${id}" not found.`);
-//         }
-//     } else {
-//         console.warn('Element has no ID, cannot select.');
-//     }
-// }
+    // Get ElementHandle<Node>[] using valid selectors
+    // const elementHandles: ElementHandle<Node>[] = [];
+    // for (const el of shadowFormElements) {
+    //     const id = el.id; // or use a different selector
+    //     if (id) {
+    //         const handle = await page.$(`#${id}`); // Use a valid CSS selector
+    //         if (handle) {
+    //             elementHandles.push(handle);
+    //         } else {
+    //             console.warn(`Element with ID "${id}" not found.`);
+    //         }
+    //     } else {
+    //         console.warn('Element has no ID, cannot select.');
+    //     }
+    // }
 
 
     // Framework-specific form elements
@@ -147,9 +223,9 @@ const findAllForms = async (page: Page): Promise<{ container: ElementHandle, fie
 
     for (const container of allContainers) {
         // console.log(container)
-        const formFields = await extractFormFields(container);
+        const formFields = await extractFormFields(container, counters);
 
-        const formSignature = await createFormSignature(formFields);
+        const formSignature = await createFormSignature(formFields, counters);
 
         // Add only unique forms by signature
         if (!seenSignatures.has(formSignature)) {
@@ -161,7 +237,7 @@ const findAllForms = async (page: Page): Promise<{ container: ElementHandle, fie
     return uniqueForms;
 };
 // Function to create a signature for a form based on its fields
-const createFormSignature = async (formFields: ElementHandle[]): Promise<string> => {
+const createFormSignature = async (formFields: ElementHandle[], counters: any): Promise<string> => {
     counters.ccreateFormSignature++
     const signatures = await Promise.all(
         formFields.map(async (field) => {
@@ -177,7 +253,6 @@ const createFormSignature = async (formFields: ElementHandle[]): Promise<string>
 };
 
 
-const fieldStore: FieldStore = {};  // Global store for fields per domain
 
 // Load credentials from JSON file
 const credentials: CredentialsStore = JSON.parse(fs.readFileSync('./scripts/credentials.json', 'utf-8'));
@@ -185,13 +260,13 @@ const credentials: CredentialsStore = JSON.parse(fs.readFileSync('./scripts/cred
 
 
 // async function exploreForks(initialForm: Field[], currentFormData: Array<{ field: string; forks?: any }>, page: Page, domain: string) {
-async function exploreForks(initialForm: Field[], currentFormData: Fork, page: Page, domain: string) {
+async function exploreForks(initialForm: Field[], currentFormData: Fork, fieldStore: FieldStore, page: Page, domain: string, counters: any) {
     let formState = initialForm;
     counters.cexploreForks++
 
     for (const field of formState) {
         if (['select', 'radio', 'checkbox'].includes(field.type)) {
-            const fieldID = storeField(domain, { ...field, options: field.options });
+            const fieldID = storeField(fieldStore, domain, { ...field, options: field.options }, counters);
             let forks: Fork[] = [];
 
             let options;
@@ -199,18 +274,19 @@ async function exploreForks(initialForm: Field[], currentFormData: Fork, page: P
             if (field.options && field.options.length > 0) {
                 options = field.options;  // Use field.options if defined
             } else {
+                //TODO: not only find by name
                 options = await page.$$eval(`input[name="${field.name}"]`, (inputs: HTMLInputElement[]) =>
                     inputs.map(input => ({
                         value: input.value,
                         text: input.nextSibling?.textContent?.trim() || '', // Fallback to an empty string
                         checked: (input as HTMLInputElement).checked || false
                     }))
-                ); // Execute this if field.options is undefined
+                );
             }
 
             if (field.type === 'checkbox') {
                 // Generate all possible combinations of checkbox states
-                const combinations = generateCombinations(options);
+                const combinations = generateCombinations(options, counters);
 
                 for (const combination of combinations) {
                     // Set each checkbox to the corresponding checked/unchecked state in the combination
@@ -222,8 +298,8 @@ async function exploreForks(initialForm: Field[], currentFormData: Fork, page: P
                         }
                     }
 
-                    // await page.waitForTimeout(10); // Adjust wait time based on site speed
-                    const updatedForm = await mapForm(page);
+                    await page.waitForTimeout(10); // Adjust wait time based on site speed
+                    const updatedForm = await mapForm(fieldStore, page, domain, counters);
 
                     const remainingForm = updatedForm.filter(
                         updatedField => !formState.some(f => f.id === updatedField.id)
@@ -234,11 +310,11 @@ async function exploreForks(initialForm: Field[], currentFormData: Fork, page: P
                             optionValues: [],
                             fork: []
                         };
-                        await exploreForks(remainingForm, nestedFork, page, domain);
+                        await exploreForks(remainingForm, nestedFork, fieldStore, page, domain, counters);
 
                         const existingFork = forks.find(fork =>
                             JSON.stringify(fork.fork) === JSON.stringify(nestedFork) ||
-                            JSON.stringify(fork.fork) === JSON.stringify(remainingForm.map(f => ({ field: storeField(domain, f) })))
+                            JSON.stringify(fork.fork) === JSON.stringify(remainingForm.map(f => ({ field: storeField(fieldStore, domain, f, counters) })))
                         );
 
                         if (existingFork) {
@@ -246,7 +322,7 @@ async function exploreForks(initialForm: Field[], currentFormData: Fork, page: P
                         } else {
                             forks.push({
                                 'optionValues': [...combination],
-                                'fork': nestedFork.fork.length > 0 ? nestedFork.fork : remainingForm.map(f => ({ id: storeField(domain, f) }))
+                                'fork': nestedFork.fork.length > 0 ? nestedFork.fork : remainingForm.map(f => ({ id: storeField(fieldStore, domain, f, counters) }))
                             });
                         }
                     }
@@ -254,17 +330,17 @@ async function exploreForks(initialForm: Field[], currentFormData: Fork, page: P
                     formState = updatedForm; // Update the current state of the form
                 }
             } else {
-                // Same logic as before for `select` and `radio` fields
+                // `select` and `radio` fields
                 for (const option of options) {
                     if (field.type !== 'select' && !option.checked) {
                         await page.check(`input[name="${field.name}"][value="${option.value}"]`);
                     } else if (field.type === 'select') {
-                        console.log("field:",field.name,"option.text: ",option.text)
+                        console.log("field:", field.name, "option.text: ", option.text)
                         await page.selectOption(`select[name="${field.name}"]`, option.value);
                     }
 
-                    // await page.waitForTimeout(10); // Adjust wait time based on site speed
-                    const updatedForm = await mapForm(page);
+                    await page.waitForTimeout(10); // Adjust wait time based on site speed
+                    const updatedForm = await mapForm(fieldStore, page, domain, counters);
 
                     const remainingForm = updatedForm.filter(
                         updatedField => !formState.some(f => f.id === updatedField.id)
@@ -275,11 +351,11 @@ async function exploreForks(initialForm: Field[], currentFormData: Fork, page: P
                             optionValues: [],
                             fork: []
                         };
-                        await exploreForks(remainingForm, nestedFork, page, domain);
+                        await exploreForks(remainingForm, nestedFork, fieldStore, page, domain, counters);
 
                         const existingFork = forks.find(fork =>
                             JSON.stringify(fork.fork) === JSON.stringify(nestedFork) ||
-                            JSON.stringify(fork.fork) === JSON.stringify(remainingForm.map(f => ({ field: storeField(domain, f) })))
+                            JSON.stringify(fork.fork) === JSON.stringify(remainingForm.map(f => ({ field: storeField(fieldStore, domain, f, counters) })))
                         );
 
                         if (existingFork) {
@@ -287,7 +363,7 @@ async function exploreForks(initialForm: Field[], currentFormData: Fork, page: P
                         } else {
                             forks.push({
                                 'optionValues': [option.value],
-                                'fork': nestedFork.fork.length > 0 ? nestedFork.fork : remainingForm.map(f => ({ id: storeField(domain, f) }))
+                                'fork': nestedFork.fork.length > 0 ? nestedFork.fork : remainingForm.map(f => ({ id: storeField(fieldStore, domain, f, counters) }))
                             });
                         }
                     }
@@ -301,7 +377,7 @@ async function exploreForks(initialForm: Field[], currentFormData: Fork, page: P
                 fork: forks.length > 0 ? forks : undefined
             });
         } else if (['input', 'textarea'].includes(field.type)) {
-            const fieldID = storeField(domain, { ...field, options: [] });
+            const fieldID = storeField(fieldStore, domain, { ...field, options: [] }, counters);
             currentFormData.fork.push({
                 id: fieldID
             });
@@ -309,24 +385,27 @@ async function exploreForks(initialForm: Field[], currentFormData: Fork, page: P
     }
 }
 
-async function mapDynamicForm(page: Page, domain: string): Promise<Fork> {
+async function mapDynamicForm(fieldStore: FieldStore, page: Page, domain: string, counters: any): Promise<FieldRef> {
     counters.mapDynamicForm++
 
-    const formData: Fork = {
-        optionValues: [],
+    const initialFork: Fork = {
+        optionValues: ['a'],
         fork: []
     };
-
-    let initialForm = await mapForm(page);
-    await exploreForks(initialForm, formData, page, domain);
-
-    return formData;
+    let initialField: FieldRef = {
+        id: '',
+        fork: []
+    }
+    let initialForm = await mapForm(fieldStore, page, domain, counters);
+    await exploreForks(initialForm, initialFork, fieldStore, page, domain, counters);
+    initialField.fork?.push(initialFork)
+    return initialField;
 }
 
-async function mapForm(page: Page): Promise<Field[]> {
+async function mapForm(fieldStore: FieldStore, page: Page, domain: string, counters: any): Promise<Field[]> {
     counters.mapForm++
 
-    const uniqueForms = await findAllForms(page);
+    const uniqueForms = await findAllForms(page, counters);
     const inputs: Field[] = [];
     const labels: { htmlFor: string, textContent: string, label: ElementHandle }[] = []; // Store label text keyed by htmlFor
 
@@ -409,7 +488,7 @@ async function mapForm(page: Page): Promise<Field[]> {
                     type: fieldProperties.type,
                     required: fieldProperties.required,
                     value: fieldProperties.type === 'checkbox' ? fieldProperties.checked ? fieldProperties.value : '' : fieldProperties.value,
-                    labelText: fieldProperties.id ? await labelContainsInput(page, fieldProperties.id) : null
+                    labelText: fieldProperties.id ? await labelContainsInput(page, fieldProperties.id, counters) : null
                 };
 
                 if (fieldProperties.type === 'checkbox') {
@@ -446,135 +525,76 @@ async function mapForm(page: Page): Promise<Field[]> {
             }
         }
     }
-// Match inputs with labels
-const matchedInputs = await page.evaluate(({labels, inputs}) => {
-    counters.matchedInputs++
+    // Match inputs with labels
+    const matchedInputs = await page.evaluate(({ labels, inputs, counters }) => {
+        counters.matchedInputs++
 
-    return inputs.map(input => {
-        let matchingLabel = null;
+        return inputs.map(input => {
+            let matchingLabel = null;
 
-        // Strategy 1: Find label with matching 'for' attribute
-        if (input.id) {
-            matchingLabel = labels.find(label => label.htmlFor === input.id) || null;
-        }
-
-        // Strategy 2: Check if input has an associated label text
-        if (!matchingLabel && input.id) {
-            if (input.labelText && input.labelText.length > 0) {
-                matchingLabel = { textContent: input.labelText };
+            // Strategy 1: Find label with matching 'for' attribute
+            if (input.id) {
+                matchingLabel = labels.find(label => label.htmlFor === input.id) || input.labelText ? { texContent: input.labelText } : null;
             }
-        }
 
-        // Strategy 3: Check previous sibling
-        if (!matchingLabel && input.id) {
-            const inputElement = document.querySelector(`[id="${input.id}"]`);
-            const prevSibling = inputElement?.previousElementSibling;
-            if (prevSibling && prevSibling.tagName.toLowerCase() === 'label') {
-                matchingLabel = {
-                    textContent: prevSibling.textContent?.trim() || ''
-                };
+            // Strategy 2: Check if input has an associated label text
+            if (!matchingLabel && input.id) {
+                if (input.labelText && input.labelText.length > 0) {
+                    matchingLabel = { textContent: input.labelText };
+                }
             }
-        }
 
-        // Strategy 4: Check if input and label are in the same parent container
-        if (!matchingLabel && input.id) {
-            const inputElement = document.querySelector(`[id="${input.id}"]`);
-            const parent = inputElement?.parentElement;
-            if (parent) {
-                const parentLabel = Array.from(parent.querySelectorAll('label')).find(label => parent.contains(inputElement));
-                if (parentLabel) {
+            // Strategy 3: Check previous sibling
+            if (!matchingLabel && input.id) {
+                const inputElement = document.querySelector(`[id="${input.id}"]`);
+                const prevSibling = inputElement?.previousElementSibling;
+                if (prevSibling && prevSibling.tagName.toLowerCase() === 'label') {
                     matchingLabel = {
-                        textContent: parentLabel.textContent?.trim() || ''
+                        textContent: prevSibling.textContent?.trim() || ''
                     };
                 }
             }
-        }
 
-        // Debugging log to help identify where it fails
-        if (!matchingLabel) {
-            console.warn(`No matching label found for input with ID or name: ${input.id || input.name}`);
-        }
+            // Strategy 4: Check if input and label are in the same parent container
+            if (!matchingLabel && input.id) {
+                const inputElement = document.querySelector(`[id="${input.id}"]`);
+                const parent = inputElement?.parentElement;
+                if (parent) {
+                    const parentLabel = Array.from(parent.querySelectorAll('label')).find(label => parent.contains(inputElement));
+                    if (parentLabel) {
+                        matchingLabel = {
+                            textContent: parentLabel.textContent?.trim() || ''
+                        };
+                    }
+                }
+            }
 
-        // Strategy 5: Use placeholder as a fallback if no label is found
-        if (!matchingLabel && input.placeholder) {
-            matchingLabel = {
-                textContent: input.placeholder.trim()
+            // Debugging log to help identify where it fails
+            if (!matchingLabel) {
+                console.warn(`No matching label found for input with ID or name: ${input.id || input.name}`);
+            }
+
+            // Strategy 5: Use placeholder as a fallback if no label is found
+            if (!matchingLabel && input.placeholder) {
+                matchingLabel = {
+                    textContent: input.placeholder.trim()
+                };
+            }
+
+            // Return the input with its matched label (if found)
+            return {
+                ...input,
+                labelText: matchingLabel ? matchingLabel.textContent : null
             };
-        }
-
-        // Return the input with its matched label (if found)
-        return {
-            ...input,
-            labelText: matchingLabel ? matchingLabel.textContent : null
-        };
-    });
-}, {labels, inputs}); // Pass labels and inputs to the evaluate function
-
-return matchedInputs;
-    // // Match inputs with labels
-    // return inputs.map(input => {
-    //     let matchingLabel: any
-    //     // let matchingLabel: { htmlFor:string, textContent: string }|null
-
-    //     // Strategy 1: Find label with matching 'for' attribute
-    //     if (input.id) {
-    //         matchingLabel = labels.find(label => label.htmlFor === input.id) || null;
-    //     }
-
-    //     // Strategy 2: Check if input is inside a label
-    //     if (!matchingLabel && input.id) {
-    //         if (input.labelText && input.labelText.length > 0) {
-    //             matchingLabel = { textContent: input.labelText }
-    //         }
-    //     }
-
-
-    //     // Strategy 3: Check previous sibling
-    //     if (!matchingLabel) {
-    //         const inputElement = document.querySelector(`[id="${input.id}"]`);
-    //         const prevSibling = inputElement?.previousElementSibling;
-    //         if (prevSibling && prevSibling.tagName.toLowerCase() === 'label') {
-    //             matchingLabel = {
-    //                 textContent: prevSibling.textContent?.trim() || ''
-    //             };
-    //         }
-    //     }
-
-    //     // Strategy 4: Check if input and label are in the same parent container
-    //     if (!matchingLabel) {
-    //         const inputElement = document.querySelector(`[id="${input.id}"]`);
-    //         const parent = inputElement?.parentElement;
-    //         if (parent) {
-    //             const parentLabel = Array.from(parent.querySelectorAll('label')).find(label => parent.contains(inputElement));
-    //             if (parentLabel) {
-    //                 matchingLabel = {
-    //                     textContent: parentLabel.textContent?.trim() || ''
-    //                 };
-    //             }
-    //         }
-    //     }
-
-    //     // Debugging log to help identify where it fails
-    //     if (!matchingLabel) {
-    //         console.warn(`No matching label found for input with ID or name: ${input.id || input.name}`);
-    //     }
-
-    //     // Strategy 5: Use placeholder as a fallback if no label is found
-    //     if (!matchingLabel && input.placeholder) {
-    //         matchingLabel = {
-    //             textContent: input.placeholder.trim()
-    //         };
-    //     }
-
-    //     // Return the input with its matched label (if found)
-    //     return {
-    //         ...input,
-    //         labelText: matchingLabel ? matchingLabel.textContent : null
-    //     };
-    // });
+        });
+    }, { labels, inputs, counters }); // Pass labels and inputs to the evaluate function
+    inputs.forEach((input: Field) => {
+        storeField(fieldStore, domain, input, counters)
+    })
+    return matchedInputs;
 }
 
-async function labelContainsInput(page: Page, id: string) {
+async function labelContainsInput(page: Page, id: string, counters: any) {
     counters.clabelContainsInput++
 
     return page.evaluate((inputId) => {
@@ -595,159 +615,53 @@ async function labelContainsInput(page: Page, id: string) {
     }, id);
 }
 
-// async function mapForm(page: Page): Promise<Field[]> {
-//     return await page.$$eval('form *', (elements: Element[]) => {
-//         const inputs: Field[] = [];
-//         const labels: { htmlFor: string | null; labelText: string; element: HTMLLabelElement }[] = [];
+async function findFirstCommonParent(page: Page, selectors: string[]): Promise<void> {
+    const commonParent = await page.evaluate((selectors) => {
+        // Helper function to check if an element contains all other elements
+        function containsAll(container: HTMLElement, elements: HTMLElement[]): boolean {
+            return elements.every(el => container.contains(el));
+        }
 
-//         elements.forEach(el => {
-//             const tagName = el.tagName.toLowerCase();
+        // Get the elements based on the selectors
+        const elements = selectors.map(sel => document.querySelector(sel) as HTMLElement).filter(Boolean);
 
-//             // Collect labels
-//             if (tagName === 'label') {
-//                 labels.push({
-//                     htmlFor: (el as HTMLLabelElement).htmlFor || null, // Capture the 'for' property or null if absent
-//                     labelText: el.textContent?.trim() || '',
-//                     element: el as HTMLLabelElement
-//                 });
-//             }
+        if (elements.length < 2) return null;  // No common parent for less than 2 elements
 
-//             // Collect inputs (input, textarea, select)
-//             if (tagName === 'input' || tagName === 'textarea' || tagName === 'select') {
-//                 const field: Field = {
-//                     id: (el as HTMLInputElement).id || (el as HTMLInputElement).name,
-//                     name: (el as HTMLInputElement).name,
-//                     type: tagName, // input, textarea, select
-//                     required: (el as HTMLInputElement).required || false, // capture 'required' property
-//                     labelText: null
-//                 };
+        // Start from the first element and traverse its ancestors
+        let current: HTMLElement | null = elements[0];
+        while (current) {
+            if (containsAll(current, elements)) {
+                return current;  // Found the common parent
+            }
+            current = current.parentElement;  // Traverse up
+        }
 
-//                 // Handle input types
-//                 if (tagName === 'input') {
-//                     field.inputType = (el as HTMLInputElement).type;
+        return null;  // No common ancestor found (edge case)
+    }, selectors);
 
-//                     if (field.inputType === 'checkbox') {
-//                         field.checked = (el as HTMLInputElement).checked || false;
-//                         field.options = [{
-//                             value: (el as HTMLInputElement).value || 'on', // checkbox value (often "on")
-//                             text: '',
-//                             checked: field.checked
-//                         }];
-//                         inputs.push(field);
-//                     } else if (field.inputType === 'radio') {
-//                         // Handle radio buttons grouped by name
-//                         const existingRadioGroup = inputs.find(input => input.name === field.name && input.type === 'radio');
-//                         if (existingRadioGroup) {
-//                             if (!existingRadioGroup.options) {
-//                                 existingRadioGroup.options = []
-//                             }
-//                             existingRadioGroup.options.push({
-//                                 value: (el as HTMLInputElement).value,
-//                                 text: '',
-//                                 checked: (el as HTMLInputElement).checked || false
-//                             });
-//                         } else {
-//                             inputs.push({
-//                                 id: (el as HTMLInputElement).id || (el as HTMLInputElement).name,
-//                                 name: (el as HTMLInputElement).name,
-//                                 type: 'radio',
-//                                 options: [{
-//                                     value: (el as HTMLInputElement).value,
-//                                     text: '',
-//                                     checked: (el as HTMLInputElement).checked || false
-//                                 }]
-//                             });
-//                         }
-//                     } else {
-//                         inputs.push({
-//                             ...field,
-//                             value: (el as HTMLInputElement).value || '', // Default to empty if no value
-//                             labelText: null
-//                         });
-//                     }
-//                 } else if (tagName === 'textarea') {
-//                     inputs.push({
-//                         ...field,
-//                         value: (el as HTMLTextAreaElement).value || '',
-//                         labelText: null
-//                     });
-//                 } else if (tagName === 'select') {
-//                     field.options = Array.from((el as HTMLSelectElement).options).map(opt => ({
-//                         value: opt.value,
-//                         text: opt.textContent?.trim() || '',
-//                         checked: (el as HTMLInputElement).checked || false
-//                     }));
-//                     inputs.push({
-//                         ...field
-//                     });
-//                 }
-//             }
-//         });
+    console.log('First common parent:', commonParent ? commonParent.outerHTML : 'No common parent found');
+}
 
-//         // Match inputs with labels
-//         return inputs.map(input => {
-//             let matchingLabel: { labelText: string } | null = null;
-
-//             // Strategy 1: Find label with matching 'for' attribute
-//             if (input.id) {
-//                 matchingLabel = labels.find(label => label.htmlFor === input.id) || null;
-//             }
-
-//             // Strategy 2: Check if input is inside a label
-//             if (!matchingLabel && input.id) {
-//                 matchingLabel = labels.find(label => label.element.contains(document.getElementById(input.id)!)) || null;
-//             }
-
-//             // Strategy 3: Check previous sibling
-//             if (!matchingLabel) {
-//                 const inputElement = document.querySelector(`[id="${input.id}"]`);
-//                 const prevSibling = inputElement?.previousElementSibling;
-//                 if (prevSibling && prevSibling.tagName.toLowerCase() === 'label') {
-//                     matchingLabel = {
-//                         labelText: prevSibling.textContent?.trim() || ''
-//                     };
-//                 }
-//             }
-
-//             // Strategy 4: Check if input and label are in the same parent container
-//             if (!matchingLabel) {
-//                 const inputElement = document.querySelector(`[id="${input.id}"]`);
-//                 const parent = inputElement?.parentElement;
-//                 if (parent) {
-//                     const parentLabel = Array.from(parent.querySelectorAll('label')).find(label => parent.contains(inputElement));
-//                     if (parentLabel) {
-//                         matchingLabel = {
-//                             labelText: parentLabel.textContent?.trim() || ''
-//                         };
-//                     }
-//                 }
-//             }
-
-//             // Debugging log to help identify where it fails
-//             if (!matchingLabel) {
-//                 console.warn(`No matching label found for input with ID or name: ${input.id || input.name}`);
-//             }
-
-//             // Strategy 5: Use placeholder as a fallback if no label is found
-//             if (!matchingLabel && input.placeholder) {
-//                 matchingLabel = {
-//                     labelText: input.placeholder.trim()
-//                 };
-//             }
-
-//             // Return the input with its matched label (if found)
-//             return {
-//                 ...input,
-//                 labelText: matchingLabel ? matchingLabel.labelText : null
-//             };
-//         });
-//     });
-// }
 
 // Main function to execute the script
 (async () => {
-    const browser = await chromium.launch({ headless: true });
-
+    const browser = await chromium.launch({ headless: false });
+    const fieldStore: FieldStore = {};  // Global store for fields per domain
+    let counters = {
+        cextractFormFields: 0,
+        cfindAllForms: 0,
+        ccreateFormSignature: 0,
+        cexploreForks: 0,
+        mapDynamicForm: 0,
+        mapForm: 0,
+        matchedInputs: 0,
+        clabelContainsInput: 0,
+        cisFormEqual: 0,
+        cextractFormData: 0,
+        cgenerateFieldID: 0,
+        cstoreField: 0,
+        cgenerateCombinations: 0
+    }
     try {
         for (const domain in credentials) {
             const domainCredentials = credentials[domain];
@@ -755,17 +669,18 @@ async function labelContainsInput(page: Page, id: string) {
             const context = await browser.newContext();
             const page = await context.newPage();
             await setupPopUpObserver(page);
-            
+
             // Perform login using the data-driven credentials
-            // await loginToSitezenga(page, domainCredentials);
-            await loginToSiteszuperpiac(page, domainCredentials);
-            
+            await loginToSitezenga(page, domainCredentials);
+            // await loginToSiteszuperpiac(page, domainCredentials);
+
             console.log(counters)
             // Loop through each form URL and extract data
-            for (const url of domainCredentials.formUrls) {
-                await extractFormData(page, url, domain);
-            }
-
+            // for (const url of domainCredentials.formUrls) {
+            //     await extractFormData(fieldStore, page, url, domain, counters);
+            // }
+            await findAllFormsbad(page, "body", counters)
+            await page.pause()
             // // Find all unique forms on the page with their ordered fields
             // const allForms = await findAllForms(page); // Assuming this function is defined elsewhere
 
@@ -816,7 +731,7 @@ async function loginToSiteszuperpiac(page: Page, domainCredentials: DomainCreden
 
 // Function to log in to a site with data-driven credentials
 async function loginToSitezenga(page: Page, domainCredentials: DomainCredentials): Promise<void> {
-    const { loginUrl, postLoginUrl, fields, submitButton, loginButton, agreeButton, username, password } = domainCredentials;
+    const { loginUrl, postLoginUrl, fields, submitButton, formUrls, loginButton, agreeButton, username, password } = domainCredentials;
 
     try {
         await page.goto(loginUrl);
@@ -837,6 +752,12 @@ async function loginToSitezenga(page: Page, domainCredentials: DomainCredentials
 
         // Wait for successful navigation or page load
         await page.waitForURL(postLoginUrl);
+        await page.goto(formUrls[0])
+        page.getByRole('button', { name: 'Tovább' }).click()
+        page.getByText('X').nth(4).click()
+        page.waitForTimeout(1000)
+        await page.pause()
+
     } catch (error: any) {
         console.error(`Login failed for ${loginUrl}: ${error.message}`);
     }
@@ -845,17 +766,16 @@ async function loginToSitezenga(page: Page, domainCredentials: DomainCredentials
 
 // Compares two form states to determine if they are equal
 function isFormEqual(form1: any, form2: any): boolean {
-    counters.cisFormEqual++
 
     return JSON.stringify(form1) === JSON.stringify(form2);
 }
 
 // Function to extract and store dynamic form data
-async function extractFormData(page: Page, url: string, domain: string): Promise<void> {
+async function extractFormData(fieldStore: FieldStore, page: Page, url: string, domain: string, counters: any): Promise<void> {
     counters.cextractFormData++
 
     await page.goto(url);
-    const currentForm = await mapDynamicForm(page, domain); // Assuming this function is defined elsewhere
+    const currentForm = await mapDynamicForm(fieldStore, page, domain, counters); // Assuming this function is defined elsewhere
     console.log("currentForm: ", currentForm);
 
     // Sanitize URL to create a filename
@@ -884,10 +804,10 @@ async function extractFormData(page: Page, url: string, domain: string): Promise
 }
 
 // Generates a unique ID for each field based on its properties
-function generateFieldID(field: { type: string; name?: string; label?: string; id?: string }): string {
+function generateFieldID(field: { type: string; name?: string; label?: string; id?: string }, counters: any): string {
     counters.cgenerateFieldID++
 
-    return `${field.type}-${field.name || field.label || field.id}`;
+    return `${field.type}-${field.name}${field.label ? "-"+field.label:""}${field.id ? "-"+ field.id:""}`;
 }
 
 // Sets up an observer for pop-ups on the page
@@ -920,11 +840,11 @@ async function setupPopUpObserver(page: Page): Promise<void> {
 }
 
 // Store the field under the specific domain in the fieldStore
-function storeField(domain: string, field: Field): string {
+function storeField(fieldStore: FieldStore, domain: string, field: Field, counters: any): string {
     counters.cstoreField++
 
     if (!fieldStore[domain]) fieldStore[domain] = {};
-    const fieldID = generateFieldID(field);
+    const fieldID = generateFieldID(field, counters);
 
     // If the field doesn't already exist, store it with options
     if (!fieldStore[domain][fieldID]) {
@@ -935,7 +855,7 @@ function storeField(domain: string, field: Field): string {
 }
 
 // Helper function to generate all combinations of checkbox states
-function generateCombinations(options: Array<{ value: string }>): string[][] {
+function generateCombinations(options: Array<{ value: string }>, counters: any): string[][] {
     counters.cgenerateCombinations++
 
     const result: string[][] = [];
@@ -952,4 +872,136 @@ function generateCombinations(options: Array<{ value: string }>): string[][] {
     }
 
     return result;
+}
+
+
+function findFieldById(fieldRefs: FieldRef[], id: string): FieldRef | undefined {
+    return fieldRefs.find((fieldRef) => fieldRef.id === id);
+}
+
+
+function compareFormStateWithFork(state: Fork, fork: Fork[], optionFieldId: string): boolean {
+    // Helper function to find a field by its ID in the form state
+
+    // Step 1: Find the field in the form state where the fork occurs
+    const fieldInState = findFieldById(state.fork, optionFieldId);
+
+    if (!fieldInState) {
+        // If the field with the given optionFieldId is not found in the state, return false
+        return false;
+    }
+
+    // Step 2: Compare the forks
+    function compareForks(fork1: Fork[], fork2: Fork[]): boolean {
+        if (fork1.length !== fork2.length) return false;
+
+        for (let i = 0; i < fork1.length; i++) {
+            const f1 = fork1[i];
+            const f2 = fork2[i];
+
+            // Compare optionValues arrays
+            if (f1.optionValues.length !== f2.optionValues.length ||
+                !f1.optionValues.every((val, idx) => val === f2.optionValues[idx])) {
+                return false;
+            }
+
+            // Recursively compare sub-forks
+            if (!compareFieldRefs(f1.fork, f2.fork)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    // Step 3: Compare the fieldRefs at the current level
+    function compareFieldRefs(stateFieldRefs: FieldRef[], forkFieldRefs: FieldRef[]): boolean {
+        if (stateFieldRefs.length !== forkFieldRefs.length) return false;
+
+        for (let i = 0; i < stateFieldRefs.length; i++) {
+            const stateFieldRef = stateFieldRefs[i];
+            const forkFieldRef = forkFieldRefs[i];
+
+            if (stateFieldRef.id !== forkFieldRef.id) {
+                return false;
+            }
+
+            // If the field has forks, compare them recursively
+            if (stateFieldRef.fork && forkFieldRef.fork) {
+                if (!compareForks(stateFieldRef.fork, forkFieldRef.fork)) {
+                    return false;
+                }
+            }
+        }
+
+        return true;
+    }
+
+    // Step 4: Start comparison from the field level where the option is mapped
+    if (fieldInState.fork && fork.length > 0) {
+        return compareForks(fieldInState.fork, fork);
+    }
+
+    return false;
+}
+
+// Your existing form mapping function (stub)
+function mapFormToDataStructure(): Fork {
+    // This would return the current form's structure in your custom format
+    // Placeholder: Replace with your actual implementation
+    return { fork: [], optionValues: [] };
+}
+
+
+// Main traversal function
+function traverseForm(fieldStore: FieldStore, currentDomain: string) {
+    // Initial form snapshot
+    let initialFormState = mapFormToDataStructure();
+    let visitedForks: Fork[] = [initialFormState]; // Stores visited form states
+
+    function mapFork(fieldRefList: FieldRef[], optionValues: string[]) {
+        // Traverse through fields and look for forks
+        for (let fieldRef of fieldRefList) {
+            let field = fieldStore[currentDomain][fieldRef.id];
+
+            // Check if this field has options (fork-creating field)
+            if (field.options && field.options.length > 1) {
+                // For each option, select it and compare the new state
+                for (let option of field.options) {
+                    // Simulate selecting this option in the form (depends on your form interaction logic)
+                    // Option's value could be applied here before mapping
+
+                    let newFormState = mapFormToDataStructure(); // Get the updated form structure
+
+                    // Compare new form state with the existing ones
+                    let matchingFork = visitedForks.find((fork) => {
+                        // compareFormStates(fork, newFormState)
+                    });
+
+                    if (matchingFork) {
+                        // If it matches an existing fork, add this option's value to the optionValues array
+                        // let correspondingFork = fieldRef.fork?.find(f => compareFormStates({ form: f.fork }, matchingFork));
+                        // if (correspondingFork) {
+                        //     correspondingFork.optionValues.push(option.value);
+                        // }
+                    } else {
+                        // If it's a new form, create a new fork and add it to the fieldRef
+                        let newFork: Fork = {
+                            optionValues: [option.value],
+                            fork: newFormState.fork // Map the new form's structure
+                        };
+
+                        if (!fieldRef.fork) {
+                            fieldRef.fork = [];
+                        }
+                        fieldRef.fork.push(newFork);
+                        visitedForks.push(newFormState); // Track this new form state
+                    }
+                }
+            }
+        }
+    }
+
+    // Start with the initial form state
+    mapFork(initialFormState.fork, []);
 }

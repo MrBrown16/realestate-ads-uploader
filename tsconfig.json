@@ -12,18 +12,27 @@
     "skipLibCheck": true,
     "isolatedModules": true,
     "esModuleInterop": true,
-    "sourceMap": true,
+    "allowSyntheticDefaultImports": true,  // Allow default imports for Node modules
+    "sourceMap": true,                     // Maintain source maps for debugging
     "declaration": false,
     "experimentalDecorators": true,
-    "moduleResolution": "bundler",
+    "moduleResolution": "node",            // Use Node.js module resolution
     "importHelpers": true,
     "target": "ES2022",
-    "module": "ES2022",
+    "module": "CommonJS",                   // Use CommonJS for Node.js compatibility
     "lib": [
       "ES2022",
       "dom"
-    ]
+    ],
+    "types": ["node", "playwright"]         // Ensure Playwright and Node.js types are included
   },
+  "include": [
+    "src/**/*.ts",
+    "scripts/**/*.ts"                       // Include your Playwright scripts
+  ],
+  "exclude": [
+    "node_modules"
+  ],
   "angularCompilerOptions": {
     "enableI18nLegacyMessageIdFormat": false,
     "strictInjectionParameters": true,
